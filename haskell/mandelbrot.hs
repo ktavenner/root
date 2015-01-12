@@ -1,78 +1,61 @@
 {-# LANGUAGE BangPatterns #-}
 
 -- cabal install juicypixels
---
 
 import Codec.Picture.Png            -- juicypixels package
 import Codec.Picture.Types          -- juicypixels package
 import Data.Array
 import Data.Complex
-import Data.Word
-import System.IO
-import System.Environment
+import System.Environment(getArgs)
 
+-- square of the magnitude of a Complex; avoids a sqrt() operation
+magnitude2 :: RealFloat a => Complex a -> a
+magnitude2 z = (realPart z) * (realPart z) + (imagPart z) * (imagPart z)
 
--- mb :: RealFloat a => Complex a -> a
-mb :: Complex Double -> Int
-mb !z = mbs 0 z z where
-    mbs !n !z !c
-        | n >= 255         	= n
-        | magnitude z > 2.0 = n
-        | otherwise         = mbs (n+1) (z * z + c) c
+-- Julia Set quadratic polynomial function
+-- for Mandelbrot, call as: julia z z
+-- for Julia Set, call as: julia z c
+julia :: RealFloat a => Complex a -> Complex a -> Int
+julia !z !c = f 0 z c where
+    f !n !z !c
+        | n >= 255           = n
+        | magnitude2 z > 4.0 = n
+        | otherwise          = f (n+1) (z * z + c) c
         
-
 -- rgb8palette :: [PixelRGB8]
-rgb8palette2 = listArray (0,255) [PixelRGB8 (47 * n) (23 * n) (17 *  n) |  n <- [0..255]]
-rgb8palette = listArray (0,255) [PixelRGB8
-    (f n 1  3)
-    (f n 1  11)
-    (f n 1  7)
-    |  n <- [0..255]]  where
-    f :: Double -> Double -> Double -> Pixel8
-    f x nu phi = floor $ 255 * (sin (2 * pi * (nu * x / 64 + phi/12)) + 1) / 2
+rgb8palette = listArray (0,255) [PixelRGB8 (47 * n) (23 * n) (17 *  n) |  n <- [0..255]]
+
+juliaImage :: Int -> Int -> Complex Double -> Double -> Image PixelRGB8
+juliaImage width height center scale =
+    generateImage (f (fromIntegral width) (fromIntegral height) center scale) width height where
+      f :: Double -> Double -> Complex Double -> Double -> Int -> Int -> PixelRGB8
+      f w h zc zr i j = rgb8palette ! (julia z z)  where
+        z = (zl + (fromIntegral i) * dz) :+ (zt - (fromIntegral j) * dz)
+        c  = 0.285 :+ 0.01   -- Julia constant
+        r = 0.5 * (max w h)
+        dz = zr / r
+        zl = (realPart zc) - w * 0.5 * dz
+        zt = (imagPart zc) + h * 0.5 * dz
+
     
-    
-main = do
 
-    let img = generateImage f w h  where
-        g :: Int -> Int -> PixelRGB8
-        g x y = rgb8palette ! (mod (div x 16) 256)
-        
-        f :: Int -> Int -> PixelRGB8
-        f x y = rgb8palette ! (mb z)  where
-            z = (pc x wr x0) :+ (pc y hr y0) 
-            pc x r x0 = (fromIntegral (x - r)) * s + x0 
+data Options = Options {
+    width       :: Int,
+    height      :: Int,
+    center      :: Complex Double,
+    scale       :: Double
+} deriving Show
 
-        x0  =  -1.0   :: Double
-        y0  =   0.0   :: Double
-        s   =   0.003 :: Double   -- real or imaginary units per pixel
-        
-        w   = 1300 :: Int
-        h   =  700 :: Int
-        wr  = div w 2
-        hr  = div h 2
-
-    writePng "out.png" img
-
-
-
-
-{-
--- [x0, y0, s] = map read getArgs :: [Double]
+parse_options :: [String] -> Options -> Options
+parse_options args options  = f options args where
+    f options ("-w":a:as)   = f (options {width  = read a}) as
+    f options ("-h":a:as)   = f (options {height = read a}) as
+    f options ("-c":a:b:as) = f (options {center = ((read a) :+ (read b))}) as
+    f options ("-s":a:as)   = f (options {scale = read a}) as
+    f options _             = options
 
 main = do
-    png <- Data.ByteString.readFile "cairo-clock-icon.png"
-    let img = decodePng png
-    case img of
-        Left x -> System.IO.putStrLn x
-        Right x -> do
-            case x of
-                ImageRGBA8 x  -> do
-                    mi <- thawImage x
-                    mi <- createMutableImage 48 48 (PixelRGBA8 0 255 0 255)
-                    writePixel mi 4 4 (PixelRGBA8 255 0 0 255) 
-                    -- writePixel mi 4 5 (PixelRGBA8 1 1 1 255) 
-                    i <- freezeImage mi
-                    writePng "out.png" i
-                    System.IO.putStrLn ((show $ imageHeight x) ++ " x " ++ (show $ imageWidth x))
--}
+    args <- getArgs
+    let options = parse_options args (Options 1024 512 (0.0 :+ 0.0) 2.0)
+    let image = juliaImage (width options) (height options) (center options) (scale options)
+    writePng "mandelbrot.png" image
