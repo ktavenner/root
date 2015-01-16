@@ -1,10 +1,12 @@
 {-# LANGUAGE BangPatterns #-}
 
 -- cabal install juicypixels
+-- ghc -O2 -o mandelbrot.exe mandelbrot.hs
 
 import Codec.Picture.Png            -- juicypixels package
 import Codec.Picture.Types          -- juicypixels package
 import Data.Array
+import Data.ByteString.Lazy
 import Data.Complex
 import System.Environment(getArgs)
 
@@ -38,17 +40,28 @@ juliaImage width height center scale =
         zt = (imagPart zc) + h * 0.5 * dz
 
     
-
 data Options = Options {
+    help        :: Bool,
     width       :: Int,
     height      :: Int,
     center      :: Complex Double,
     scale       :: Double
 } deriving Show
 
+usage_options =
+    "Writes a rendering of the Mandelbrot or Julia set as PNG to stdout.\n\
+    \\n\
+    \usage: mandelbrot [-w width] [-h height] [-c rcenter icenter] [-s scale]\n\
+    \    --help         this help text\n\
+    \    -w width       width of image, in pixels\n\
+    \    -h height      height of image, in pixels\n\
+    \    -c rcenter icenter  complex location of center\n\
+    \    -s scale       1/2 width (or height) on complex plane\n"
+
 parse_options :: [String] -> Options -> Options
 parse_options args options  = f options args where
-    f options ("-w":a:as)   = f (options {width  = read a}) as
+    f options ("--help":as) = f (options {help = True}) as
+    f options ("-w":a:as)   = f (options {width = read a}) as
     f options ("-h":a:as)   = f (options {height = read a}) as
     f options ("-c":a:b:as) = f (options {center = ((read a) :+ (read b))}) as
     f options ("-s":a:as)   = f (options {scale = read a}) as
@@ -56,6 +69,11 @@ parse_options args options  = f options args where
 
 main = do
     args <- getArgs
-    let options = parse_options args (Options 1024 512 (0.0 :+ 0.0) 2.0)
-    let image = juliaImage (width options) (height options) (center options) (scale options)
-    writePng "mandelbrot.png" image
+    let options = parse_options args (Options False 1024 512 (0.0 :+ 0.0) 2.0)
+
+    if (help options)
+      then
+        Prelude.putStr usage_options
+      else
+        Data.ByteString.Lazy.putStr $ encodePng $
+          juliaImage (width options) (height options) (center options) (scale options)
